@@ -57,5 +57,23 @@ dc_confirm_token() {
   [[ "$ans" == "$token" ]]
 }
 
+# Robustly unmount every partition of a device before a destructive op.
+# Handles udisks-managed mounts (/run/media/*) that a plain `umount -R` misses.
+dc_unmount_device() {
+  local dev="$1" part mp
+  sync
+  # Unmount each partition node, trying udisks then umount then lazy umount.
+  for part in $(lsblk -rno NAME "$dev" 2>/dev/null | tail -n +2); do
+    udisksctl unmount -b "/dev/$part" >/dev/null 2>&1 || true
+    umount "/dev/$part" 2>/dev/null || umount -l "/dev/$part" 2>/dev/null || true
+  done
+  # Unmount by mountpoint too (covers bind/oddly-registered mounts).
+  while read -r mp; do
+    [[ -n "$mp" ]] && { umount "$mp" 2>/dev/null || umount -l "$mp" 2>/dev/null || true; }
+  done < <(lsblk -rno MOUNTPOINT "$dev" 2>/dev/null | awk 'NF')
+  umount -l "${dev}" 2>/dev/null || true
+  sync
+}
+
 # JSON string escaper (minimal).
 dc_json_escape() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' | tr -d '\n'; }

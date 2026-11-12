@@ -177,9 +177,13 @@ if [[ "${DC_ASSUME_YES:-0}" != "1" ]]; then
   dc_confirm_token "Type the device path to confirm (${BLD}$DEVICE${RST}): " "$DEVICE" || dc_die "Path confirmation failed."
   dc_confirm_token "Type ${BLD}ERASE${RST} to proceed: " "ERASE" || dc_die "Final confirmation failed."
 fi
-# Unmount anything on the device first.
-dc_run "umount -R '${DEVICE}'* 2>/dev/null || true"
-dc_run "sync"
+# Unmount anything on the device first (udisks-aware, so /run/media/* is released).
+if [[ "${DC_DRYRUN:-0}" == "1" ]]; then
+  echo -e "   ${DIM}[plan] dc_unmount_device $DEVICE${RST}"
+else
+  dc_info "Unmounting all partitions of $DEVICE ..."
+  dc_unmount_device "$DEVICE"
+fi
 dc_sanitize_apply
 dc_info "Sanitize method applied: ${BLD}${DC_SAN_METHOD}${RST}"
 
