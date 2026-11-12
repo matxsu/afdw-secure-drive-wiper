@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# lib/common.sh — shared helpers for decom (decommission) toolkit
+# lib/common.sh — shared helpers for requiem (decommission) toolkit
 # SPDX-License-Identifier: MIT
-# Sourced by decom.sh and the other lib/*.sh modules. Defines no side effects
+# Sourced by requiem and the other lib/*.sh modules. Defines no side effects
 # beyond function/variable definitions, so it is safe to source under set -e.
 
 # ---- version -------------------------------------------------------------
-DECOM_VERSION="2.0.0-dev"
+REQUIEM_VERSION="1.0.0"
 
 # ---- colors (respect NO_COLOR and non-tty) -------------------------------
 dc_init_colors() {

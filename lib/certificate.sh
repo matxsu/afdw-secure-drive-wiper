@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: MIT
 #
 # Writes two files to $DC_CERT_DIR:
-#   decom-cert-<serial-or-dev>-<stamp>.json   (machine-readable)
-#   decom-cert-<serial-or-dev>-<stamp>.txt    (human/printable)
+#   requiem-cert-<serial-or-dev>-<stamp>.json   (machine-readable)
+#   requiem-cert-<serial-or-dev>-<stamp>.txt    (human/printable)
 # Intended as proof of sanitization (e.g. GDPR disposal, ITAD hand-off).
 # It records what *actually* ran — it does not inflate the method claimed.
 
@@ -15,8 +15,8 @@ dc_certificate() {
   local stamp id json txt
   stamp="$(date +%Y%m%d_%H%M%S)"
   id="${DC_SERIAL:-$(basename "$DC_DEV")}"
-  json="$dir/decom-cert-${id}-${stamp}.json"
-  txt="$dir/decom-cert-${id}-${stamp}.txt"
+  json="$dir/requiem-cert-${id}-${stamp}.json"
+  txt="$dir/requiem-cert-${id}-${stamp}.txt"
 
   local verify_ok="${DC_VERIFY_OK:-0}" result="INCOMPLETE"
   [[ "${DC_SAN_APPLIED:-0}" == "1" && "$verify_ok" == "1" ]] && result="PASS"
@@ -24,7 +24,7 @@ dc_certificate() {
 
   {
     echo '{'
-    printf '  "tool": "decom", "version": "%s",\n' "$DECOM_VERSION"
+    printf '  "tool": "requiem", "version": "%s",\n' "$REQUIEM_VERSION"
     printf '  "timestamp": "%s",\n' "$(date -Is)"
     printf '  "operator": "%s",\n' "$(printf '%s' "${DC_OPERATOR:-unknown}" | dc_json_escape)"
     printf '  "device": {"path": "%s", "by_id": "%s", "model": "%s", "serial": "%s", "size_bytes": %s, "media": "%s", "bus": "%s"},\n' \
@@ -42,7 +42,7 @@ dc_certificate() {
     echo "============================================================"
     echo " DATA SANITIZATION CERTIFICATE  (NIST SP 800-88 Rev.1 style)"
     echo "============================================================"
-    echo " Tool / version : decom $DECOM_VERSION"
+    echo " Tool / version : requiem $REQUIEM_VERSION"
     echo " Date           : $(date -Is)"
     echo " Operator       : ${DC_OPERATOR:-unknown}"
     echo "------------------------------------------------------------"

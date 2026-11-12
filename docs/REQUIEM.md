@@ -1,7 +1,7 @@
-# decom — storage decommissioning pipeline
+# requiem — storage decommissioning pipeline
 
-`decom.sh` is the final-form workflow built on top of AFDW. Where `afdw.sh`
-focuses on the wipe, `decom` treats *decommissioning a drive* as the whole job:
+`requiem` is the final-form workflow built on top of AFDW. Where `afdw.sh`
+focuses on the wipe, `requiem` treats *decommissioning a drive* as the whole job:
 
 ```
 identify → PLAN → [ recover → archive → sanitize → verify → certificate ]
@@ -9,14 +9,14 @@ identify → PLAN → [ recover → archive → sanitize → verify → certific
 
 ## Safety model: plan first, apply explicitly
 
-By default `decom` **only plans**. It identifies the device, shows the exact
+By default `requiem` **only plans**. It identifies the device, shows the exact
 erasure method and commands it *would* run, and inventories what it *would*
 preserve — and changes nothing. You must pass `--apply` to execute. Even then it
 re-verifies the device by serial number and makes you type the path and `ERASE`.
 
 ```bash
-sudo ./decom.sh /dev/sdb            # PLAN only — destroys nothing
-sudo ./decom.sh /dev/sdb --apply    # preserve, then wipe, then certify
+sudo ./requiem /dev/sdb            # PLAN only — destroys nothing
+sudo ./requiem /dev/sdb --apply    # preserve, then wipe, then certify
 ```
 
 ## The six stages
@@ -51,14 +51,14 @@ on an SSD:
 Why: on an SSD the FTL, wear-leveling and over-provisioning hide copies of data
 from any LBA overwrite. **Crypto-erase / firmware sanitize** reach those cells;
 plain `dd` does not. Firmware commands usually don't pass through a **USB
-bridge**, so for a bridged drive `decom` uses TRIM (or overwrite) and *says so* —
+bridge**, so for a bridged drive `requiem` uses TRIM (or overwrite) and *says so* —
 and recommends attaching the drive directly for `--method crypto`/`secure-erase`.
 
 Force a specific method with `--method crypto|sanitize|secure-erase|trim|overwrite-random|overwrite-zero`.
 
 ## The certificate
 
-Each applied run writes `decom-cert-<serial>-<stamp>.{json,txt}` recording the
+Each applied run writes `requiem-cert-<serial>-<stamp>.{json,txt}` recording the
 device identity, the method **actually** applied (not an inflated claim), its
 NIST 800-88 category, the verification result, and where preserved data went.
 Useful as proof of disposal (e.g. GDPR) or for an ITAD hand-off.
@@ -66,7 +66,7 @@ Useful as proof of disposal (e.g. GDPR) or for an ITAD hand-off.
 ## Layout
 
 ```
-decom.sh                orchestrator (plan → apply)
+requiem                orchestrator (plan → apply)
 lib/common.sh           logging, dry-run runner, helpers
 lib/identify.sh         device id, media class, system-disk guard
 lib/sanitize.sh         per-media method selection + apply

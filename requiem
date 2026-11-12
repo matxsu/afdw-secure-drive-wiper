@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# decom.sh — storage decommissioning pipeline (final-form of AFDW)
+# requiem — storage decommissioning pipeline (final-form of AFDW)
 # SPDX-License-Identifier: MIT
 #
 #   identify → PLAN → [recover → archive → sanitize → verify → certificate]
 #
-# Safety model: by default decom only PLANS (shows exactly what it would do and
+# Safety model: by default requiem only PLANS (shows exactly what it would do and
 # destroys nothing). You must pass --apply to execute. Even then it re-verifies
 # the device by serial and asks you to type the path + ERASE before wiping.
 #
 # It reuses the archive/recover modules (prewipe-archive.sh / prewipe-recover.sh)
 # and adds media-correct sanitization, verification and a NIST SP 800-88 style
-# certificate. See docs/DECOM.md.
+# certificate. See docs/REQUIEM.md.
 set -Eeuo pipefail
 
 SELF="$(readlink -f "$0")"; SELFDIR="$(dirname "$SELF")"
@@ -23,13 +23,13 @@ source "$SELFDIR/lib/certificate.sh"
 
 usage() {
   cat <<EOF
-${BLD}decom${RST} $DECOM_VERSION — safe storage decommissioning (recover → archive → sanitize → certify)
+${BLD}requiem${RST} $REQUIEM_VERSION — safe storage decommissioning (recover → archive → sanitize → certify)
 
 Usage: sudo $0 [options] /dev/sdX
 
 Core:
   /dev/sdX | --device DEV   Target device (whole disk).
-  --apply                   Actually execute. Without it, decom only PLANS (no writes).
+  --apply                   Actually execute. Without it, requiem only PLANS (no writes).
   --yes                     Skip interactive confirmations (DANGEROUS; for automation).
   --operator NAME           Name recorded on the sanitization certificate.
   --dest DIR                Base dir for recovery, archive and certificate
@@ -99,7 +99,7 @@ export AFDW_RECOVER_DEST="${AFDW_RECOVER_DEST:-$BASE_DEST/recovery}"
 DC_ARCHIVE_DEST="$AFDW_ARCHIVE_DEST"; DC_RECOVER_DEST="$AFDW_RECOVER_DEST"
 DC_CERT_DIR="$BASE_DEST"
 mkdir -p "$BASE_DEST" 2>/dev/null || true
-DC_LOG="$BASE_DEST/decom-$(date +%Y%m%d_%H%M%S).log"
+DC_LOG="$BASE_DEST/requiem-$(date +%Y%m%d_%H%M%S).log"
 
 # Plan mode → everything downstream runs in dry-run.
 if [[ $APPLY -eq 1 ]]; then DC_DRYRUN=0; else DC_DRYRUN=1; fi

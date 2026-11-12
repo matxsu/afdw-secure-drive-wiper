@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/run.sh — decom test harness. Exercises the pure logic on fixtures and,
+# tests/run.sh — requiem test harness. Exercises the pure logic on fixtures and,
 # when run as root with losetup available, on real loop-device virtual disks.
 # Never touches a physical drive. Exit non-zero if any assertion fails.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/decom_tests.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/requiem_tests.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 PASS=0; FAIL=0
@@ -23,7 +23,7 @@ source "$ROOT/lib/verify.sh"
 source "$ROOT/lib/certificate.sh"
 
 echo "== syntax: all scripts parse =="
-for f in "$ROOT"/decom.sh "$ROOT"/prewipe-archive.sh "$ROOT"/prewipe-recover.sh "$ROOT"/lib/*.sh; do
+for f in "$ROOT"/requiem "$ROOT"/prewipe-archive.sh "$ROOT"/prewipe-recover.sh "$ROOT"/lib/*.sh; do
   if bash -n "$f"; then ok "syntax $(basename "$f")"; else bad "syntax $(basename "$f")"; fi
 done
 

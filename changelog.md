@@ -7,9 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## \[Unreleased]
 
-### Added — decom pipeline (final form)
+### Added — requiem pipeline (final form)
 
-* **`decom.sh`**: a plan→apply decommissioning pipeline on top of AFDW —
+* **`requiem`**: a plan→apply decommissioning pipeline on top of AFDW —
   `identify → plan → recover → archive → sanitize → verify → certificate`.
   Default runs **plan only** (destroys nothing); `--apply` executes.
 * **Stable-ID device identification + system-disk guard** (`lib/identify.sh`):
@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
   (`lib/certificate.sh`, JSON + printable TXT) recording the method actually used.
 * **Test harness** (`tests/run.sh`): 34 pure-logic/fixture assertions plus an
   optional real loop-device erase+verify under root. Never touches a physical disk.
-* **`docs/DECOM.md`** documenting the pipeline, the media-correct method table and
+* **`docs/REQUIEM.md`** documenting the pipeline, the media-correct method table and
   the forensic rationale.
 
 ### Added
