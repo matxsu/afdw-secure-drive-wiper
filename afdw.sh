@@ -76,6 +76,8 @@ FAST=0                 # --fast: if discard unsupported, skip noise pass automat
 SKIP_WIPE=0            # --skip-wipe: skip noise & zero; do format+verify only
 AUTO_INSTALL_DEPS=0    # --install-deps: apt-get install required packages (Debian/Ubuntu)
 DOCTOR=0               # --doctor: run env/deps checks and exit
+ARCHIVE_PHASE=1        # pre-wipe inventory/archive gate (see prewipe-archive.sh); --no-archive to skip
+RECOVER_PHASE="${AFDW_RECOVER:-0}"  # forensic recovery stage (see prewipe-recover.sh); --recover to enable
 LOG_DIR="./afdw_logs"
 mkdir -p "$LOG_DIR" || true
 
@@ -110,6 +112,22 @@ Options:
   --install-deps            Auto-install required packages (Debian/Ubuntu only)
   --no-color                Disable ANSI colors
   -h, --help                Show this help
+
+Forensic recovery (runs FIRST, before archive/wipe; see prewipe-recover.sh):
+  --recover                 Enable the recovery stage (undelete deleted files)
+  --recover-image           Also clone the whole device (ddrescue/dd) first
+  --recover-carve           Also signature-carve (photorec/foremost) — slow
+  --recover-dest DIR        Recovery output dir (env: AFDW_RECOVER_DEST)
+  --no-recover              Force the recovery stage off
+                            All AFDW_RECOVER_* env vars are honored (see that script's header).
+
+Pre-wipe archive (runs BEFORE any destructive step; see prewipe-archive.sh):
+  --no-archive              Skip the pre-wipe inventory/archive gate entirely
+  --archive-dest DIR        Where to copy kept files (env: AFDW_ARCHIVE_DEST)
+  --archive-profile NAME    personal|documents|media|dev|all|none (env: AFDW_ARCHIVE_PROFILE)
+  --archive-auto            Archive matched files without prompting (env: AFDW_ARCHIVE_AUTO)
+  --archive-dry-run         Inventory only; copy nothing (env: AFDW_ARCHIVE_DRYRUN)
+                            All AFDW_ARCHIVE_* env vars are honored (see that script's header).
 
 Examples:
   sudo $0                                   # Guided mode
@@ -147,6 +165,18 @@ while [[ $# -gt 0 ]]; do
 
     --doctor) DOCTOR=1; shift;;
     --install-deps) AUTO_INSTALL_DEPS=1; shift;;
+
+    --no-archive) ARCHIVE_PHASE=0; shift;;
+    --archive-dest) export AFDW_ARCHIVE_DEST="${2:-}"; shift 2;;
+    --archive-profile) export AFDW_ARCHIVE_PROFILE="${2:-}"; shift 2;;
+    --archive-auto) export AFDW_ARCHIVE_AUTO=1; shift;;
+    --archive-dry-run) export AFDW_ARCHIVE_DRYRUN=1; shift;;
+
+    --recover) RECOVER_PHASE=1; export AFDW_RECOVER=1; shift;;
+    --no-recover) RECOVER_PHASE=0; export AFDW_RECOVER=0; shift;;
+    --recover-image) RECOVER_PHASE=1; export AFDW_RECOVER=1 AFDW_RECOVER_IMAGE=1; shift;;
+    --recover-carve) RECOVER_PHASE=1; export AFDW_RECOVER=1 AFDW_RECOVER_CARVE=1; shift;;
+    --recover-dest) export AFDW_RECOVER_DEST="${2:-}"; shift 2;;
 
     --no-color) shift;; # already handled elsewhere (colors are always on by default here)
     -h|--help) usage; exit 0;;
@@ -431,6 +461,58 @@ if [[ $NON_INTERACTIVE -eq 0 ]]; then
   cooldown 5
 else
   [[ "$ERASE_CONFIRM" == "ERASE" ]] || die "Non-interactive mode requires --erase-confirm ERASE (CASE SENSITIVE)."
+fi
+
+############################################
+#        Forensic recovery stage           #
+############################################
+# Runs BEFORE the archive gate: recover deleted files / image a failing drive /
+# carve by signature, so anything important that is no longer a live file is
+# rescued first. Read-only on the source. Controlled by AFDW_RECOVER_* env vars
+# and the --recover* flags. Off unless explicitly enabled.
+if [[ "${RECOVER_PHASE:-0}" -eq 1 ]]; then
+  PWR_LIB="$(dirname "$(readlink -f "$0")")/prewipe-recover.sh"
+  if [[ -f "$PWR_LIB" ]]; then
+    [[ $DRY_RUN -eq 1 ]] && export AFDW_RECOVER_DRYRUN=1
+    # shellcheck source=prewipe-recover.sh
+    source "$PWR_LIB"
+    set +e
+    pwr_run "$DEVICE"; pwr_rc=$?
+    set -e
+    [[ $pwr_rc -ne 0 ]] && die "Forensic recovery FAILED (rc=$pwr_rc). Nothing was wiped. Fix it, or pass --no-recover."
+  else
+    warn "prewipe-recover.sh not found next to afdw.sh; skipping recovery stage."
+  fi
+fi
+
+############################################
+#        Pre-wipe archive phase            #
+############################################
+# Last chance to rescue data BEFORE anything is overwritten. The heavy lifting
+# lives in the reusable prewipe-archive.sh (sourced here). Controlled by the
+# AFDW_ARCHIVE_* env vars and the --archive-* / --no-archive flags.
+if [[ $ARCHIVE_PHASE -eq 1 ]]; then
+  PWA_LIB="$(dirname "$(readlink -f "$0")")/prewipe-archive.sh"
+  if [[ -f "$PWA_LIB" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+      info "[dry-run] Would run the pre-wipe archive phase (prewipe-archive.sh) on $DEVICE."
+    else
+      # shellcheck source=prewipe-archive.sh
+      source "$PWA_LIB"
+      set +e
+      pwa_run "$DEVICE"; pwa_rc=$?
+      set -e
+      case "$pwa_rc" in
+        0)  : ;;                                  # nothing to keep / archived / user skipped → proceed
+        20) die "Aborted at the pre-wipe archive gate (user choice). Nothing was wiped." ;;
+        *)  die "Pre-wipe archive FAILED (rc=$pwa_rc). Nothing was wiped. Fix it, or pass --no-archive to skip." ;;
+      esac
+    fi
+  else
+    warn "prewipe-archive.sh not found next to afdw.sh; skipping archive phase."
+  fi
+else
+  info "Pre-wipe archive phase disabled (--no-archive)."
 fi
 
 ############################################

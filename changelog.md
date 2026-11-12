@@ -5,6 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## \[Unreleased]
+
+### Added
+
+* **Pre-wipe archive gate** (`prewipe-archive.sh`): before any destructive step,
+  AFDW now inventories the target, shows a categorized report (documents / images
+  / video / audio / keys), and offers to copy worth-keeping files to a safe
+  destination — with a per-file `MANIFEST.tsv` (sha256) and summary. Driven by
+  `AFDW_ARCHIVE_*` env vars and `--archive-*` / `--no-archive` flags. Default: on.
+* **Forensic recovery stage** (`prewipe-recover.sh`): optional, runs first.
+  Undeletes deleted files (NTFS → `ntfsundelete`, ext → `extundelete`/`ext4magic`,
+  any → Sleuth Kit `tsk_recover`), clones failing drives with `ddrescue`/`dd`, and
+  signature-carves with `photorec`/`foremost`/`scalpel`. Degrades gracefully and
+  names the package to install when a tool is missing. Driven by `AFDW_RECOVER_*`
+  env vars and `--recover*` flags. Default: off (opt-in).
+* **Cross-platform media support**: read-only mounting now tries filesystem-aware
+  drivers so drives from Windows (NTFS/exFAT), macOS (HFS+/APFS, best-effort) and
+  Linux (ext/btrfs/xfs/f2fs) can all be scanned and preserved.
+* Both stages are fully **read-only** on the source and honor `--dry-run`.
+
+### Notes
+
+* New run order: **recover (opt-in) → archive (default) → wipe**. If a requested
+  recovery/archive step fails, AFDW aborts *before* wiping (nothing is destroyed).
+
+---
+
 ## \[1.3.0] - 2025-09-17
 
 ### Added
