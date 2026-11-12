@@ -155,6 +155,14 @@ aborts **before** wiping — nothing is destroyed.
 > from a Linux USB or attach the disk to a Linux box. Native macOS/Windows
 > wipers are on the roadmap.
 
+**Going further — `decom.sh`.** A plan→apply pipeline built on top of these stages
+that ties the whole job together: `identify → plan → recover → archive → sanitize
+→ verify → certificate`. It identifies the drive by stable ID, refuses the system
+disk, picks the **media-correct** erase primitive (NVMe crypto-erase / ATA
+secure-erase → TRIM → overwrite), verifies the result and emits a **NIST SP
+800-88** certificate. Runs **plan-only by default** (destroys nothing until
+`--apply`). See [`docs/DECOM.md`](docs/DECOM.md).
+
 
 # How To Run (First Time Setup):
 

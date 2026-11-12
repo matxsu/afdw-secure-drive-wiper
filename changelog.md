@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## \[Unreleased]
 
+### Added — decom pipeline (final form)
+
+* **`decom.sh`**: a plan→apply decommissioning pipeline on top of AFDW —
+  `identify → plan → recover → archive → sanitize → verify → certificate`.
+  Default runs **plan only** (destroys nothing); `--apply` executes.
+* **Stable-ID device identification + system-disk guard** (`lib/identify.sh`):
+  resolves `/dev/disk/by-id`, serial, media class (nvme/sata-ssd/hdd/usb/mmc),
+  refuses the running system disk, and re-verifies by serial before wiping.
+* **Media-correct sanitization** (`lib/sanitize.sh`): `--method auto` chooses the
+  most effective primitive per media — NVMe crypto-erase / ATA secure-erase
+  (Purge) → TRIM → overwrite (Clear) — and is honest that USB bridges can't issue
+  firmware erase. Explicit `--method` override supported.
+* **Post-wipe verification** (`lib/verify.sh`) and a **NIST SP 800-88 certificate**
+  (`lib/certificate.sh`, JSON + printable TXT) recording the method actually used.
+* **Test harness** (`tests/run.sh`): 34 pure-logic/fixture assertions plus an
+  optional real loop-device erase+verify under root. Never touches a physical disk.
+* **`docs/DECOM.md`** documenting the pipeline, the media-correct method table and
+  the forensic rationale.
+
 ### Added
 
 * **Pre-wipe archive gate** (`prewipe-archive.sh`): before any destructive step,
