@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# requiem — storage decommissioning pipeline (final-form of AFDW)
+# SPDX-License-Identifier: MIT
+#
+#   identify → PLAN → [recover → archive → sanitize → verify → certificate]
+#
+# Safety model: by default requiem only PLANS (shows exactly what it would do and
+# destroys nothing). You must pass --apply to execute. Even then it re-verifies
+# the device by serial and asks you to type the path + ERASE before wiping.
+#
+# It reuses the archive/recover modules (prewipe-archive.sh / prewipe-recover.sh)
+# and adds media-correct sanitization, verification and a NIST SP 800-88 style
+# certificate. See docs/REQUIEM.md.
+set -Eeuo pipefail
+
+SELF="$(readlink -f "$0")"; SELFDIR="$(dirname "$SELF")"
+# shellcheck source=lib/common.sh
+source "$SELFDIR/lib/common.sh"
+source "$SELFDIR/lib/identify.sh"
+source "$SELFDIR/lib/sanitize.sh"
+source "$SELFDIR/lib/verify.sh"
+source "$SELFDIR/lib/certificate.sh"
+
+usage() {
+  cat <<EOF
+${BLD}requiem${RST} $REQUIEM_VERSION — safe storage decommissioning (recover → archive → sanitize → certify)
+
+Usage: sudo $0 [options] /dev/sdX
+
+Core:
+  /dev/sdX | --device DEV   Target device (whole disk).
+  --apply                   Actually execute. Without it, requiem only PLANS (no writes).
+  --yes                     Skip interactive confirmations (DANGEROUS; for automation).
+  --operator NAME           Name recorded on the sanitization certificate.
+  --dest DIR                Base dir for recovery, archive and certificate
+                            (default: \${HOME}/old-archive).
+  --genius                  Allow operating on the system disk (DANGEROUS).
+  --no-color                Disable ANSI colors.
+  -h, --help                This help.
+
+Erasure method (default: auto — picks the most effective primitive per media):
+  --method M                auto | crypto | sanitize | secure-erase | trim |
+                            overwrite-random | overwrite-zero
+
+Preserve data first:
+  --recover                 Run the forensic recovery stage (deleted files).
+  --recover-image           Also image the whole device (ddrescue/dd).
+  --recover-carve           Also signature-carve (photorec/foremost).
+  --no-archive              Skip the archive gate (on by default).
+  --archive-profile P       personal|documents|media|dev|all|none.
+  --archive-auto            Archive without prompting.
+
+All AFDW_ARCHIVE_* / AFDW_RECOVER_* env vars are also honored.
+
+Examples:
+  sudo $0 /dev/sdb                      # PLAN only: show method + inventory, destroy nothing
+  sudo $0 /dev/sdb --apply              # archive gate, then media-correct wipe, then certificate
+  sudo $0 /dev/sdb --recover --apply    # recover deleted files first, then archive, then wipe
+  sudo $0 /dev/nvme1n1 --method crypto --apply --operator "Mathis"
+EOF
+}
+
+# ---- defaults ----
+DEVICE=""; APPLY=0; METHOD="auto"; GENIUS=0
+RECOVER=0; ARCHIVE=1
+DC_OPERATOR="${USER:-unknown}"
+BASE_DEST="${HOME:-/root}/old-archive"
+
+# ---- args ----
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --device) DEVICE="${2:-}"; shift 2;;
+    /dev/*) DEVICE="$1"; shift;;
+    --apply) APPLY=1; shift;;
+    --yes) DC_ASSUME_YES=1; export AFDW_ARCHIVE_ASSUME_YES=1; shift;;
+    --method) METHOD="${2:-auto}"; shift 2;;
+    --operator) DC_OPERATOR="${2:-unknown}"; shift 2;;
+    --dest) BASE_DEST="${2:-}"; shift 2;;
+    --genius) GENIUS=1; shift;;
+    --no-color) DC_NO_COLOR=1; dc_init_colors; shift;;
+    --recover) RECOVER=1; shift;;
+    --recover-image) RECOVER=1; export AFDW_RECOVER_IMAGE=1; shift;;
+    --recover-carve) RECOVER=1; export AFDW_RECOVER_CARVE=1; shift;;
+    --no-archive) ARCHIVE=0; shift;;
+    --archive-profile) export AFDW_ARCHIVE_PROFILE="${2:-}"; shift 2;;
+    --archive-auto) export AFDW_ARCHIVE_AUTO=1; shift;;
+    -h|--help) usage; exit 0;;
+    *) dc_die "Unknown option: $1 (see --help)";;
+  esac
+done
+
+[[ -n "$DEVICE" ]] || { usage; exit 1; }
+dc_require_root
+[[ -b "$DEVICE" ]] || dc_die "Not a block device: $DEVICE"
+
+# Wire shared destinations.
+export AFDW_ARCHIVE_DEST="${AFDW_ARCHIVE_DEST:-$BASE_DEST}"
+export AFDW_RECOVER_DEST="${AFDW_RECOVER_DEST:-$BASE_DEST/recovery}"
+DC_ARCHIVE_DEST="$AFDW_ARCHIVE_DEST"; DC_RECOVER_DEST="$AFDW_RECOVER_DEST"
+DC_CERT_DIR="$BASE_DEST"
+mkdir -p "$BASE_DEST" 2>/dev/null || true
+DC_LOG="$BASE_DEST/requiem-$(date +%Y%m%d_%H%M%S).log"
+
+# Plan mode → everything downstream runs in dry-run.
+if [[ $APPLY -eq 1 ]]; then DC_DRYRUN=0; else DC_DRYRUN=1; fi
+export AFDW_ARCHIVE_DRYRUN="$DC_DRYRUN" AFDW_RECOVER_DRYRUN="$DC_DRYRUN"
+
+############################################
+#              1. IDENTIFY                 #
+############################################
+dc_step "IDENTIFY"
+dc_identify "$DEVICE"
+dc_identify_print
+if [[ "$DC_IS_SYSTEM" == "1" && $GENIUS -ne 1 ]]; then
+  dc_die "Refusing to operate on the system disk ($DEVICE). Use --genius only if you are certain."
+fi
+EXPECT_SERIAL="$DC_SERIAL"
+
+############################################
+#              2. PLAN                      #
+############################################
+dc_step "PLAN"
+dc_sanitize_select "$METHOD"
+echo -e "   ${BLD}Preserve:${RST}  recover=$([[ $RECOVER -eq 1 ]] && echo on || echo off)  archive=$([[ $ARCHIVE -eq 1 ]] && echo on || echo off)"
+echo -e "   ${BLD}Erase:${RST}     ${BLD}${DC_SAN_METHOD}${RST} — ${DC_SAN_DESC}"
+echo -e "   ${BLD}NIST 800-88:${RST} ${DC_SAN_NIST}"
+echo -e "   ${BLD}Commands:${RST}"
+for c in "${DC_SAN_CMDS[@]}"; do echo -e "     ${DIM}${c}${RST}"; done
+# Honest caveat for bridged media.
+if [[ "$DC_MEDIA" == "usb" && "$DC_SAN_METHOD" != nvme-* && "$DC_SAN_METHOD" != ata-* ]]; then
+  dc_warn "USB bridge: firmware crypto-erase/secure-erase cannot be issued here. For the strongest result, attach the drive directly (SATA/NVMe) and re-run with --method crypto/secure-erase."
+fi
+
+if [[ $APPLY -ne 1 ]]; then
+  # Still show what would be preserved (inventory), destroying nothing.
+  if [[ $RECOVER -eq 1 && -f "$SELFDIR/prewipe-recover.sh" ]]; then
+    export AFDW_RECOVER=1; source "$SELFDIR/prewipe-recover.sh"; set +e; pwr_run "$DEVICE"; set -e
+  fi
+  if [[ $ARCHIVE -eq 1 && -f "$SELFDIR/prewipe-archive.sh" ]]; then
+    export AFDW_ARCHIVE=1; source "$SELFDIR/prewipe-archive.sh"; set +e; pwa_run "$DEVICE"; set -e
+  fi
+  echo
+  dc_info "PLAN complete. Nothing was changed. Re-run with ${BLD}--apply${RST} to execute."
+  exit 0
+fi
+
+############################################
+#          3. PRESERVE (recover+archive)   #
+############################################
+if [[ $RECOVER -eq 1 ]]; then
+  dc_step "RECOVER"
+  [[ -f "$SELFDIR/prewipe-recover.sh" ]] || dc_die "prewipe-recover.sh missing."
+  export AFDW_RECOVER=1; source "$SELFDIR/prewipe-recover.sh"
+  set +e; pwr_run "$DEVICE"; rc=$?; set -e
+  [[ $rc -ne 0 ]] && dc_die "Recovery failed (rc=$rc). Nothing was wiped."
+fi
+
+if [[ $ARCHIVE -eq 1 ]]; then
+  dc_step "ARCHIVE"
+  [[ -f "$SELFDIR/prewipe-archive.sh" ]] || dc_die "prewipe-archive.sh missing."
+  export AFDW_ARCHIVE=1; source "$SELFDIR/prewipe-archive.sh"
+  set +e; pwa_run "$DEVICE"; rc=$?; set -e
+  case $rc in
+    0) : ;;
+    20) dc_die "Aborted at archive gate. Nothing was wiped." ;;
+    *) dc_die "Archive failed (rc=$rc). Nothing was wiped." ;;
+  esac
+fi
+
+############################################
+#              4. SANITIZE                  #
+############################################
+dc_step "SANITIZE"
+dc_identify_reverify "$DEVICE" "$EXPECT_SERIAL" || dc_die "Device re-verification failed."
+echo -e "${RED}${BLD}About to IRREVERSIBLY erase $DEVICE ($DC_SIZE_H, serial ${DC_SERIAL:-?}) via ${DC_SAN_METHOD}.${RST}"
+if [[ "${DC_ASSUME_YES:-0}" != "1" ]]; then
+  dc_confirm_token "Type the device path to confirm (${BLD}$DEVICE${RST}): " "$DEVICE" || dc_die "Path confirmation failed."
+  dc_confirm_token "Type ${BLD}ERASE${RST} to proceed: " "ERASE" || dc_die "Final confirmation failed."
+fi
+# Unmount anything on the device first (udisks-aware, so /run/media/* is released).
+if [[ "${DC_DRYRUN:-0}" == "1" ]]; then
+  echo -e "   ${DIM}[plan] dc_unmount_device $DEVICE${RST}"
+else
+  dc_info "Unmounting all partitions of $DEVICE ..."
+  dc_unmount_device "$DEVICE"
+fi
+dc_sanitize_apply
+dc_info "Sanitize method applied: ${BLD}${DC_SAN_METHOD}${RST}"
+
+############################################
+#              5. VERIFY                     #
+############################################
+dc_step "VERIFY"
+case "$DC_SAN_METHOD" in
+  overwrite-random*|nvme-crypto*|nvme-sanitize-crypto) EXPECT=entropy ;;
+  *) EXPECT=zero ;;
+esac
+set +e; dc_verify "$DEVICE" "$EXPECT"; set -e
+if [[ "${DC_VERIFY_OK:-0}" == "1" ]]; then
+  dc_info "Verification PASS ($EXPECT): $DC_VERIFY_NOTES"
+else
+  dc_warn "Verification NOT passed ($EXPECT): $DC_VERIFY_NOTES"
+fi
+
+############################################
+#              6. CERTIFICATE               #
+############################################
+dc_step "CERTIFICATE"
+DC_ARCHIVE_SETDIR="$(ls -1dt "$AFDW_ARCHIVE_DEST"/*_"$(basename "$DEVICE")" 2>/dev/null | head -n1 || true)"
+dc_certificate || dc_warn "certificate generation had issues"
+
+echo
+dc_info "DONE. Device $DEVICE decommissioned via ${DC_SAN_METHOD}. Log: $DC_LOG"
+[[ "${DC_VERIFY_OK:-0}" == "1" ]] && exit 0 || exit 2

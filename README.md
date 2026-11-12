@@ -122,6 +122,46 @@ Net effect: you end with a drive that either (a) looks blank and freshly formatt
 or (b) (if you choose) ends on high-entropy “random” data — your call via flags.
 
 
+# Pre-wipe data preservation (recover → archive → wipe)
+
+Destroying data is only safe once you're sure nothing important is still on the
+drive. AFDW adds two optional, **read-only** stages that run *before* the wipe:
+
+```
+ [1] FORENSIC RECOVERY (opt-in)   [2] ARCHIVE GATE (default on)   [3] WIPE
+ undelete deleted files,          inventory live files, show      the same
+ image a failing drive,           a categorized report, copy      irreversible
+ carve by file signature          the worth-keeping ones out      erase as before
+```
+
+* **Archive gate** (`prewipe-archive.sh`, on by default): scans the target,
+  prints what's on it (documents / images / video / audio / keys, sizes, biggest
+  files), and asks whether to copy the worth-keeping files to a safe place before
+  wiping. Writes a `MANIFEST.tsv` (sha256) + summary. Skips OS trees and caches by
+  default so it captures *your* data, not the whole filesystem.
+* **Forensic recovery** (`prewipe-recover.sh`, opt-in with `--recover`): recovers
+  what is important but no longer a live file — deleted files (per-filesystem
+  undelete), a full `ddrescue` clone of a failing drive, and signature carving.
+  Uses standard FOSS tools when present and tells you what to install otherwise.
+
+Everything is configured with `AFDW_ARCHIVE_*` / `AFDW_RECOVER_*` environment
+variables or the `--archive-*` / `--recover*` flags. Drives from Windows
+(NTFS/exFAT), macOS (HFS+/APFS) and Linux (ext/btrfs/xfs) are all read when
+attached to the Linux host. See `usage-examples.md` for copy-paste recipes and the
+script headers for the full list of knobs. If a recovery/archive step fails, AFDW
+aborts **before** wiping — nothing is destroyed.
+
+> The wiper itself runs on Linux; to wipe a Mac/Windows internal disk, run AFDW
+> from a Linux USB or attach the disk to a Linux box. Native macOS/Windows
+> wipers are on the roadmap.
+
+**Going further — `requiem`.** A plan→apply pipeline built on top of these stages
+that ties the whole job together: `identify → plan → recover → archive → sanitize
+→ verify → certificate`. It identifies the drive by stable ID, refuses the system
+disk, picks the **media-correct** erase primitive (NVMe crypto-erase / ATA
+secure-erase → TRIM → overwrite), verifies the result and emits a **NIST SP
+800-88** certificate. Runs **plan-only by default** (destroys nothing until
+`--apply`). See [`docs/REQUIEM.md`](docs/REQUIEM.md).
 
 
 # How To Run (First Time Setup):

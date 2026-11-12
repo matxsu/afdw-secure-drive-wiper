@@ -5,6 +5,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## \[Unreleased]
+
+### Added — requiem pipeline (final form)
+
+* **`requiem`**: a plan→apply decommissioning pipeline on top of AFDW —
+  `identify → plan → recover → archive → sanitize → verify → certificate`.
+  Default runs **plan only** (destroys nothing); `--apply` executes.
+* **Stable-ID device identification + system-disk guard** (`lib/identify.sh`):
+  resolves `/dev/disk/by-id`, serial, media class (nvme/sata-ssd/hdd/usb/mmc),
+  refuses the running system disk, and re-verifies by serial before wiping.
+* **Media-correct sanitization** (`lib/sanitize.sh`): `--method auto` chooses the
+  most effective primitive per media — NVMe crypto-erase / ATA secure-erase
+  (Purge) → TRIM → overwrite (Clear) — and is honest that USB bridges can't issue
+  firmware erase. Explicit `--method` override supported.
+* **Post-wipe verification** (`lib/verify.sh`) and a **NIST SP 800-88 certificate**
+  (`lib/certificate.sh`, JSON + printable TXT) recording the method actually used.
+* **Test harness** (`tests/run.sh`): 34 pure-logic/fixture assertions plus an
+  optional real loop-device erase+verify under root. Never touches a physical disk.
+* **`docs/REQUIEM.md`** documenting the pipeline, the media-correct method table and
+  the forensic rationale.
+
+### Added
+
+* **Pre-wipe archive gate** (`prewipe-archive.sh`): before any destructive step,
+  AFDW now inventories the target, shows a categorized report (documents / images
+  / video / audio / keys), and offers to copy worth-keeping files to a safe
+  destination — with a per-file `MANIFEST.tsv` (sha256) and summary. Driven by
+  `AFDW_ARCHIVE_*` env vars and `--archive-*` / `--no-archive` flags. Default: on.
+* **Forensic recovery stage** (`prewipe-recover.sh`): optional, runs first.
+  Undeletes deleted files (NTFS → `ntfsundelete`, ext → `extundelete`/`ext4magic`,
+  any → Sleuth Kit `tsk_recover`), clones failing drives with `ddrescue`/`dd`, and
+  signature-carves with `photorec`/`foremost`/`scalpel`. Degrades gracefully and
+  names the package to install when a tool is missing. Driven by `AFDW_RECOVER_*`
+  env vars and `--recover*` flags. Default: off (opt-in).
+* **Cross-platform media support**: read-only mounting now tries filesystem-aware
+  drivers so drives from Windows (NTFS/exFAT), macOS (HFS+/APFS, best-effort) and
+  Linux (ext/btrfs/xfs/f2fs) can all be scanned and preserved.
+* Both stages are fully **read-only** on the source and honor `--dry-run`.
+
+### Notes
+
+* New run order: **recover (opt-in) → archive (default) → wipe**. If a requested
+  recovery/archive step fails, AFDW aborts *before* wiping (nothing is destroyed).
+
+---
+
 ## \[1.3.0] - 2025-09-17
 
 ### Added
